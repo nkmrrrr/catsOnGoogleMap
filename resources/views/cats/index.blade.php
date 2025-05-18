@@ -31,8 +31,8 @@
 <body class="bg-gray-100">
     <div class="container mx-auto px-4 py-8">
         <header class="mb-8 text-center">
-            <h1 class="text-3xl font-bold text-gray-800 mb-2">Google Maps上の猫写真ギャラリー</h1>
-            <p class="text-gray-600">Google Maps上で見つかった猫の写真ギャラリー</p>
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">猫写真ギャラリー</h1>
+            <p class="text-gray-600">Google Maps上で見つかった世界中の猫写真コレクション</p>
         </header>
         
         @if(session('message'))
@@ -43,7 +43,7 @@
         
         <div class="bg-white p-6 rounded-lg shadow-md mb-8">
             <p class="mb-4">
-                <strong>総写真数:</strong> {{ count($cats) }}枚
+                <strong>猫写真数:</strong> {{ count($photos) }}枚
             </p>
             <p>
                 <a href="{{ url('/extract-cats') }}" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded">
@@ -52,21 +52,21 @@
             </p>
         </div>
 
-        @if(count($cats) > 0)
+        @if(count($photos) > 0)
             <div class="gallery">
-                @foreach($cats as $cat)
+                @foreach($photos as $photo)
                     <div class="cat-card bg-white">
-                        <img src="{{ $cat['url'] }}" alt="Cat image" class="cat-image">
+                        <img src="{{ $photo['url'] }}" alt="猫の写真" class="cat-image">
                         <div class="p-4">
-                            <p class="text-sm text-gray-500">場所ID: {{ $cat['place_id'] }}</p>
-                            <p class="text-sm text-gray-500">撮影日: {{ $cat['created_at'] }}</p>
+                            <p class="text-sm text-gray-500">場所ID: {{ $photo['place_id'] }}</p>
+                            <p class="text-sm text-gray-500">撮影日: {{ $photo['created_at'] }}</p>
                         </div>
                     </div>
                 @endforeach
             </div>
         @else
             <div class="text-center py-12">
-                <p class="text-xl text-gray-600">猫の写真がまだありません。「新しい猫写真を検索」をクリックして写真を収集してください。</p>
+                <p class="text-xl text-gray-600">猫写真がまだありません。「新しい猫写真を検索」をクリックして写真を収集してください。</p>
             </div>
         @endif
     </div>

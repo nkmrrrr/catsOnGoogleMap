@@ -20,7 +20,7 @@ class ExtractCatPhotos extends Command
     protected $signature = 'cat:extract {--place_id=} {--limit=50}';
 
     /** @var string 説明 (php artisan list に出る) */
-    protected $description = 'Download photos from Google Maps and crop cats';
+    protected $description = 'Download photos from Google Maps locations';
 
     public function handle(): int
     {
@@ -64,7 +64,7 @@ class ExtractCatPhotos extends Command
     }
 
     /**
-     * 写真を処理して猫を検出・切り抜く
+     * 写真を処理して猫を検出・保存
      * 
      * @param array $photos 写真データの配列
      * @param int $limit 処理する最大枚数
@@ -86,25 +86,17 @@ class ExtractCatPhotos extends Command
             try {
                 $imgData = $this->downloadPhoto($photo['photo_reference'], $mapsKey);
 
-                // 猫オブジェクトの検出
+                // 猫の検出を行う
                 $objects = $this->detectObjects($imgData, $vision);
+                $containsCat = $this->containsCat($objects);
 
-                // 猫が見つかったかどうかのフラグ
-                $catFound = false;
-
-                // 検出された猫を処理
-                foreach ($objects as $obj) {
-                    if (strtolower($obj->getName()) !== 'cat') continue;
-
-                    // 猫を検出＆切り抜き
-                    if ($this->cropAndSaveCat($obj, $imgData, $currentPlaceId)) {
-                        $catFound = true;
-                        $processedCount++;
-                    }
-                }
-
-                if (!$catFound) {
-                    $this->info('No cats detected in this photo.');
+                if ($containsCat) {
+                    // 猫が含まれている場合は写真をそのまま保存
+                    $path = $this->saveImage($imgData, $currentPlaceId);
+                    $this->info("Cat detected! Saved full photo: $path");
+                    $processedCount++;
+                } else {
+                    $this->info("No cats detected in photo, skipping...");
                 }
             } catch (\Exception $e) {
                 $this->warn('Error processing photo: ' . $e->getMessage());
@@ -119,73 +111,78 @@ class ExtractCatPhotos extends Command
      * 
      * @param string $imgData 画像データ
      * @param ImageAnnotatorClient $vision Vision APIクライアント
-     * @return iterable 検出されたオブジェクト
+     * @return iterable 検出結果
      */
     protected function detectObjects(string $imgData, ImageAnnotatorClient $vision): iterable
     {
-        // Vision APIリクエストの作成
-        $visionImage = new VisionImage();
-        $visionImage->setContent($imgData);
+        try {
+            // 検出リクエストの作成
+            $image = new VisionImage();
+            $image->setContent($imgData);
 
-        $feature = new Feature();
-        $feature->setType(Type::OBJECT_LOCALIZATION);
+            // オブジェクト検出の特徴を指定
+            $feature = new Feature();
+            $feature->setType(Type::OBJECT_LOCALIZATION);
+            $feature->setMaxResults(50);
 
-        $imageRequest = new AnnotateImageRequest();
-        $imageRequest->setImage($visionImage);
-        $imageRequest->setFeatures([$feature]);
+            // アノテーションリクエストの作成
+            $request = new AnnotateImageRequest();
+            $request->setImage($image);
+            $request->setFeatures([$feature]);
 
-        // バッチリクエストを作成
-        $batchRequest = new BatchAnnotateImagesRequest();
-        $batchRequest->setRequests([$imageRequest]);
+            // バッチリクエストの作成と送信
+            $batchRequest = new BatchAnnotateImagesRequest();
+            $batchRequest->setRequests([$request]);
 
-        // 画像アノテーションの実行
-        $response = $vision->batchAnnotateImages($batchRequest);
-        $annotationResponse = $response->getResponses()[0];
-        // RepeatedFieldをそのまま返す（iterableとして扱う）
-        return $annotationResponse->getLocalizedObjectAnnotations();
+            // リクエストを送信して結果を取得
+            $response = $vision->batchAnnotateImages($batchRequest);
+            $results = $response->getResponses()[0];
+
+            return $results->getLocalizedObjectAnnotations();
+        } catch (\Exception $e) {
+            $this->warn('Error detecting objects: ' . $e->getMessage());
+            return [];
+        }
     }
 
     /**
-     * 検出された猫を切り取って保存
+     * 検出されたオブジェクトの中に猫が含まれているかを判定
      * 
-     * @param object $obj 検出されたオブジェクト
-     * @param string $imgData 元の画像データ
-     * @param string $currentPlaceId 現在の場所ID
-     * @return bool 保存に成功したかどうか
+     * @param iterable $objects 検出されたオブジェクト
+     * @return bool 猫が含まれているかどうか
      */
-    protected function cropAndSaveCat(object $obj, string $imgData, string $currentPlaceId): bool
+    protected function containsCat(iterable $objects): bool
     {
-        $v = $obj->getBoundingPoly()->getNormalizedVertices();
-        if (count($v) < 4) return false;
-
-        try {
-            // Intervention Image 3.x用の設定
-            $manager = new ImageManager(new Driver());
-            $im = $manager->read($imgData);
-            $w = $im->width();
-            $h = $im->height();
-
-            // 座標計算
-            $cropWidth = ($v[2]->getX() - $v[0]->getX()) * $w;
-            $cropHeight = ($v[2]->getY() - $v[0]->getY()) * $h;
-            $cropX = $v[0]->getX() * $w;
-            $cropY = $v[0]->getY() * $h;
-
-            // サイズチェック（小さすぎる検出は無視）
-            if ($cropWidth < 20 || $cropHeight < 20) {
-                $this->warn('Cat detection too small, skipping...');
-                return false;
+        foreach ($objects as $object) {
+            $name = $object->getName();
+            // 'Cat'というラベルがあれば猫が含まれていると判断
+            if (strcasecmp($name, 'Cat') === 0) {
+                return true;
             }
+        }
+        return false;
+    }
 
-            // Intervention Image 3.x用のcropsの呼び方
-            $crop = $im->crop((int)$cropWidth, (int)$cropHeight, (int)$cropX, (int)$cropY);
+    /**
+     * 画像を保存
+     * 
+     * @param string $imgData 画像データ
+     * @param string $placeId 場所ID
+     * @return string 保存パス
+     */
+    protected function saveImage(string $imgData, string $placeId): string
+    {
+        try {
+            // ファイルパスを生成
+            $path = 'cats/' . $placeId . '_' . uniqid() . '.jpg';
 
-            // ファイル名の生成と保存
-            $path = $this->saveCatImage($crop, $currentPlaceId);
-            return true;
+            // 画像データをそのまま保存
+            Storage::disk('public')->put($path, $imgData);
+
+            return $path;
         } catch (\Exception $e) {
-            $this->warn('Failed to crop cat: ' . $e->getMessage());
-            return false;
+            $this->warn('Failed to save image: ' . $e->getMessage());
+            throw $e;
         }
     }
 
@@ -196,92 +193,20 @@ class ExtractCatPhotos extends Command
      * @param int $limit 取得する写真の最大数
      * @return array 写真のリスト
      */
-    /**
-     * Maps APIキーを取得
-     * 
-     * @return string APIキー
-     * @throws \Exception キーが設定されていない場合
-     */
-    protected function getMapsApiKey(): string
-    {
-        $key = config('services.google.maps_key');
-        if (empty($key)) {
-            throw new \Exception('Google Maps API key is not configured.');
-        }
-        return $key;
-    }
-
-    /**
-     * 猫画像を保存
-     * 
-     * @param object $crop 切り抜いた画像
-     * @param string $placeId 場所ID
-     * @return string 保存パス
-     */
-    protected function saveCatImage(object $crop, string $placeId): string
-    {
-        $path = 'cats/' . $placeId . '_' . uniqid() . '.jpg';
-        // Intervention Image 3.x用のエンコード方法
-        $encodedImage = $crop->toJpeg(90);
-        Storage::disk('public')->put($path, $encodedImage);
-        $this->info("Saved: $path");
-        return $path;
-    }
-
-    /**
-     * Vision APIクライアントを作成
-     * 
-     * @return ImageAnnotatorClient
-     */
-    protected function createVisionClient(): ImageAnnotatorClient
-    {
-        return new ImageAnnotatorClient();
-    }
-
-    /**
-     * 特定の場所の写真を取得
-     * 
-     * @param string $placeId 場所ID
-     * @param string $apiKey Google Maps APIキー
-     * @return array 写真のリスト
-     */
-    protected function getPhotosForPlace(string $placeId, string $apiKey): array
-    {
-        return Http::get(
-            'https://maps.googleapis.com/maps/api/place/details/json',
-            ['place_id' => $placeId, 'fields' => 'photo', 'key' => $apiKey]
-        )->json('result.photos', []);
-    }
-
-    /**
-     * 写真をダウンロード
-     * 
-     * @param string $photoReference 写真のリファレンスID
-     * @param string $apiKey Google Maps APIキー
-     * @return string 画像データ
-     */
-    protected function downloadPhoto(string $photoReference, string $apiKey): string
-    {
-        return Http::get(
-            'https://maps.googleapis.com/maps/api/place/photo',
-            ['photoreference' => $photoReference, 'maxwidth' => 1600, 'key' => $apiKey]
-        )->body();
-    }
-
     protected function getRandomCatPhotos(string $apiKey, int $limit): array
     {
-        // 猫に関連する検索キーワード
-        $catKeywords = [
+        // 検索キーワード（猫だけでなく、一般的にも興味深い場所も含む）
+        $locationKeywords = [
             'cat cafe',
-            'cat park',
-            'cat shelter',
-            'cat sanctuary',
-            'cat rescue',
             'pet store',
             'animal shelter',
-            'veterinary clinic',
-            'cat statue',
-            'cat museum'
+            'park',
+            'famous landmark',
+            'tourist attraction',
+            'scenic view',
+            'museum',
+            'waterfall',
+            'historic site'
         ];
 
         // ランダムに都市を選ぶ（世界中の主要な都市）
@@ -308,7 +233,7 @@ class ExtractCatPhotos extends Command
         ];
 
         $randomCity = $cities[array_rand($cities)];
-        $randomKeyword = $catKeywords[array_rand($catKeywords)];
+        $randomKeyword = $locationKeywords[array_rand($locationKeywords)];
 
         $this->info("Searching for '{$randomKeyword}' in {$randomCity}");
 
@@ -350,5 +275,60 @@ class ExtractCatPhotos extends Command
         }
 
         return $placeDetails;
+    }
+
+    /**
+     * Maps APIキーを取得
+     * 
+     * @return string APIキー
+     * @throws \Exception キーが設定されていない場合
+     */
+    protected function getMapsApiKey(): string
+    {
+        $key = config('services.google.maps_key');
+        if (empty($key)) {
+            throw new \Exception('Google Maps API key is not configured.');
+        }
+        return $key;
+    }
+
+    /**
+     * Vision APIクライアントを作成
+     * 
+     * @return ImageAnnotatorClient
+     */
+    protected function createVisionClient(): ImageAnnotatorClient
+    {
+        return new ImageAnnotatorClient();
+    }
+
+    /**
+     * 特定の場所の写真を取得
+     * 
+     * @param string $placeId 場所ID
+     * @param string $apiKey Google Maps APIキー
+     * @return array 写真のリスト
+     */
+    protected function getPhotosForPlace(string $placeId, string $apiKey): array
+    {
+        return Http::get(
+            'https://maps.googleapis.com/maps/api/place/details/json',
+            ['place_id' => $placeId, 'fields' => 'photo', 'key' => $apiKey]
+        )->json('result.photos', []);
+    }
+
+    /**
+     * 写真をダウンロード
+     * 
+     * @param string $photoReference 写真のリファレンスID
+     * @param string $apiKey Google Maps APIキー
+     * @return string 画像データ
+     */
+    protected function downloadPhoto(string $photoReference, string $apiKey): string
+    {
+        return Http::get(
+            'https://maps.googleapis.com/maps/api/place/photo',
+            ['photoreference' => $photoReference, 'maxwidth' => 1600, 'key' => $apiKey]
+        )->body();
     }
 }

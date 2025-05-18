@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Storage;
 class CatController extends Controller
 {
     /**
-     * 保存された猫の写真一覧を表示
+     * 猫写真ギャラリー
      *
      * @return \Illuminate\View\View
      */
@@ -23,18 +23,18 @@ class CatController extends Controller
         });
 
         // ファイルのURLとメタデータを生成
-        $cats = [];
-        $baseUrl = url('/'); // アプリケーションのベースURLを取得
+        $photos = [];
         foreach ($files as $file) {
+            $baseUrl = url('/'); // アプリケーションのベースURL取得
             $filename = basename($file);
             // ファイル名からplace_idとその他の情報を抽出
             $parts = explode('_', $filename);
             $placeId = $parts[0] ?? 'unknown';
 
-            // 正しいURLを生成 (url()関数を使ってベースURLを考慮)
+            // 正しいURLを生成 (asset()関数を使ってベースURLを考慮)
             $fileUrl = asset('storage/' . $file);
 
-            $cats[] = [
+            $photos[] = [
                 'url' => $fileUrl,
                 'filename' => $filename,
                 'place_id' => $placeId,
@@ -42,6 +42,6 @@ class CatController extends Controller
             ];
         }
 
-        return view('cats.index', ['cats' => $cats]);
+        return view('cats.index', ['photos' => $photos]);
     }
 }
