@@ -1,66 +1,105 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Google Maps 猫写真検索アプリ
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Google Maps から取得した写真から猫を検出し、コレクションとして表示する Laravel アプリケーションです。
 
-## About Laravel
+## 機能概要
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- Google Maps から様々な場所の写真を自動収集
+- Google Cloud Vision API を使用して写真内の猫を検出
+- 猫が写っている写真のみを保存（クロップなし、全体画像）
+- 保存された写真を Web インターフェースでギャラリー表示
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## 技術スタック
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- Laravel (PHP フレームワーク)
+- Google Maps Place API (写真収集用)
+- Google Cloud Vision API (猫検出用)
+- Tailwind CSS (UI 用)
 
-## Learning Laravel
+## インストール方法
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+### 前提条件
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+- PHP 8.0 以上
+- Composer
+- Google Cloud Platform のアカウントと API キー
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+### 手順
 
-## Laravel Sponsors
+1. リポジトリをクローンする
+```
+git clone <リポジトリURL>
+cd catsOnGooglemap
+```
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+2. 依存パッケージをインストール
+```
+composer install
+```
 
-### Premium Partners
+3. 環境変数の設定
+`.env` ファイルを作成し、以下の API キーを設定します：
+```
+GOOGLE_MAPS_API_KEY=your_google_maps_api_key
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service-account-credentials.json
+```
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[WebReinvent](https://webreinvent.com/)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel/)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Jump24](https://jump24.co.uk)**
-- **[Redberry](https://redberry.international/laravel/)**
-- **[Active Logic](https://activelogic.com)**
-- **[byte5](https://byte5.de)**
-- **[OP.GG](https://op.gg)**
+4. ストレージのシンボリックリンクを作成
+```
+php artisan storage:link
+```
 
-## Contributing
+5. データベースのセットアップ（必要な場合）
+```
+php artisan migrate
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+6. アプリケーションを起動
+```
+php artisan serve
+```
 
-## Code of Conduct
+## 使い方
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+1. ブラウザで `http://localhost:8000` にアクセスします。
+2. 「新しい猫写真を検索」ボタンをクリックして、写真の収集を開始します。
+3. 収集された猫の写真がギャラリーに表示されます。
 
-## Security Vulnerabilities
+## コマンドライン機能
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+特定の場所の写真を検索するには、コマンドラインから以下を実行します：
 
-## License
+```
+php artisan cat:extract --place_id=<GoogleマップのPlaceID> --limit=<取得する写真の最大数>
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+引数なしで実行すると、世界中のランダムな場所から写真を検索します：
+
+```
+php artisan cat:extract
+```
+
+## 実装の詳細
+
+### 猫の検出プロセス
+
+1. Google Maps API を使用して様々な場所から写真を収集
+2. Google Cloud Vision API の `localizeObjects` 機能を使用して、画像内のオブジェクトを検出
+3. 検出されたオブジェクトに「Cat」が含まれる場合のみ、その写真を保存
+4. 写真はクロップせずに元のサイズのまま保存
+
+### 技術的ポイント
+
+- Laravel コマンド機能を活用したバッチ処理の実装
+- Google Cloud Vision API を使用した画像認識
+- ストレージとシンボリックリンクを使用した画像の効率的な管理
+- Tailwind CSS を使用したレスポンシブな UI デザイン
+
+## ライセンス
+
+このプロジェクトは [MIT ライセンス](https://opensource.org/licenses/MIT) のもとで公開されています。
+
+## 注意事項
+
+- Google Maps API と Google Cloud Vision API は有料のサービスです。使用量に応じて課金される可能性があります。
+- アプリケーションは、写真内の猫を検出して保存します。検出精度は Vision API の性能に依存します。
